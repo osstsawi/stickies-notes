@@ -5,7 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import re
 import tkinter as tk
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple
+
+from stickies_notes.backend import BASE_DPI
 
 if TYPE_CHECKING:  # pragma: no cover - solo para anotaciones
     from stickies_notes.backend import WindowBackend
@@ -15,14 +17,30 @@ COLOR_HEADER = "#f5d547"
 COLOR_PAPER = "#fff8c4"
 COLOR_TEXT = "#33312a"
 
-NOTE_WIDTH = 280
-NOTE_HEIGHT = 220
-TRACK_INTERVAL_MS = 300
+# Medidas en pixeles logicos (a 96 DPI). En pantallas con otra escala se
+# multiplican por dpi/96: ver _apply_scale().
+BASE_WIDTH = 280
+BASE_HEIGHT = 220
+BASE_HEADER_H = 24
+BASE_FONT_TITLE = 11
+BASE_FONT_CLOSE = 13
+BASE_FONT_TEXT = 13
+BASE_MARGIN = 10
+BASE_TOP_OFFSET = 30
 
-# Prefijo del titulo de la propia nota: sirve para no anclar una nota sobre otra.
+# El seguimiento va a ~30 fps. Con 300 ms la nota se arrastraba visiblemente por
+# detras de la ventana al moverla; GetWindowRect es barato, asi que el sondeo
+# rapido no se nota en CPU.
+TRACK_INTERVAL_MS = 33
+
+# Prefijo del titulo de la propia nota. Es la segunda linea de defensa para no
+# anclar una nota sobre otra; la primera es WindowNote.note_hwnds, porque una
+# ventana overrideredirect puede no exponer titulo al sistema.
 NOTE_TITLE_PREFIX = "\U0001f4cc"
 
 _INVALID_CHARS = re.compile(r'[\\/:*?"<>|\r\n\t]+')
+
+Rect = Tuple[int, int, int, int]
 
 
 def sanitize_filename(name: str) -> str:
@@ -38,15 +56,31 @@ def sanitize_filename(name: str) -> str:
     return cleaned or "sin_titulo"
 
 
+def rects_overlap(a: Optional[Rect], b: Optional[Rect]) -> bool:
+    """Indica si dos rectangulos (left, top, right, bottom) se solapan.
+
+    Recibe: dos rectangulos, o None si alguno no se pudo consultar.
+    Devuelve: False si falta alguno (sin dato no se asume solape).
+    """
+    if not a or not b:
+        return False
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+
 class WindowNote:
     """Nota adhesiva anclada al handle de una ventana concreta.
 
-    La nota flota siempre encima, sigue a la ventana anclada y se archiva a un
-    archivo Markdown cuando esa ventana se cierra o cuando el usuario la cierra.
+    La nota sigue a la ventana anclada, se esconde cuando esa ventana se
+    minimiza o queda tapada, y se archiva a un archivo Markdown cuando la
+    ventana se cierra.
     """
 
     # Registro global: un handle de ventana -> una nota como maximo.
     open_notes: Dict[int, "WindowNote"] = {}
+
+    # Handles de las ventanas de las PROPIAS notas. Sirve para que una nota
+    # nunca se ancle a otra nota (ver manager._create_or_focus).
+    note_hwnds: Set[int] = set()
 
     def __init__(
         self,
@@ -67,15 +101,27 @@ class WindowNote:
         self.window_title = backend.get_window_title(handle) or "sin_titulo"
         self.created_at = dt.datetime.now()
         self._alive = True
+        self._visible = True
         # Offset manual respecto a la esquina de la ventana anclada; se fija
         # solo si el usuario arrastra la nota a mano.
-        self._manual_offset: Optional[tuple[int, int]] = None
-        self._drag_origin: Optional[tuple[int, int]] = None
+        self._manual_offset: Optional[Tuple[int, int]] = None
+        self._drag_origin: Optional[Tuple[int, int]] = None
+        self._drag_geom: Tuple[int, int] = (0, 0)
+        self._own_hwnds: Set[int] = set()
+        self._dpi = 0
+        self._scale = 1.0
+        self._w = BASE_WIDTH
+        self._h = BASE_HEIGHT
+        self._pos: Optional[Tuple[int, int]] = None
 
         self._build_ui()
+        self._apply_scale(backend.get_window_dpi(handle))
         self._position_near_window()
+        self._register_own_hwnds()
         WindowNote.open_notes[handle] = self
         self._track()
+
+    # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
         """Crea el Toplevel sin bordes con su header arrastrable y el cuerpo."""
@@ -88,9 +134,8 @@ class WindowNote:
         except tk.TclError:
             # Algunos gestores de ventanas de Linux no soportan -alpha.
             pass
-        self.top.geometry(f"{NOTE_WIDTH}x{NOTE_HEIGHT}")
 
-        self.header = tk.Frame(self.top, bg=COLOR_HEADER, height=24)
+        self.header = tk.Frame(self.top, bg=COLOR_HEADER, height=BASE_HEADER_H)
         self.header.pack(fill="x", side="top")
         self.header.pack_propagate(False)
 
@@ -103,7 +148,6 @@ class WindowNote:
             bg=COLOR_HEADER,
             fg=COLOR_TEXT,
             anchor="w",
-            font=("Segoe UI", 8, "bold"),
         )
         self.title_label.pack(side="left", padx=6)
 
@@ -113,7 +157,6 @@ class WindowNote:
             bg=COLOR_HEADER,
             fg=COLOR_TEXT,
             cursor="hand2",
-            font=("Segoe UI", 9, "bold"),
         )
         self.close_button.pack(side="right", padx=6)
         self.close_button.bind("<Button-1>", lambda _e: self._archive_and_close(True))
@@ -125,7 +168,6 @@ class WindowNote:
             relief="flat",
             wrap="word",
             undo=True,
-            font=("Segoe UI", 10),
             padx=6,
             pady=4,
         )
@@ -134,6 +176,55 @@ class WindowNote:
         for widget in (self.header, self.title_label):
             widget.bind("<Button-1>", self._on_drag_start)
             widget.bind("<B1-Motion>", self._on_drag_move)
+
+    def _apply_scale(self, dpi: int) -> None:
+        """Reescala la nota al DPI del monitor donde esta la ventana anclada.
+
+        Recibe: el DPI del monitor (96 = escala 100%).
+
+        Como el proceso es per-monitor DPI aware, Windows ya no reescala nada
+        por nosotros: sin esto la nota se veria diminuta en un monitor al 150%.
+        Las fuentes se piden en PIXELES (tamano negativo en Tk) para que no
+        dependan del factor de escala global de Tk, que se fija una sola vez al
+        arrancar y no sirve con monitores de escalas distintas.
+        """
+        if dpi == self._dpi:
+            return
+        self._dpi = dpi
+        self._scale = dpi / BASE_DPI
+        s = self._scale
+
+        self._w = round(BASE_WIDTH * s)
+        self._h = round(BASE_HEIGHT * s)
+
+        self.header.configure(height=round(BASE_HEADER_H * s))
+        self.title_label.configure(font=("Segoe UI", -round(BASE_FONT_TITLE * s), "bold"))
+        self.close_button.configure(font=("Segoe UI", -round(BASE_FONT_CLOSE * s), "bold"))
+        self.text.configure(font=("Segoe UI", -round(BASE_FONT_TEXT * s)))
+
+        # Fuerza el redibujo con el tamano nuevo; la posicion la fija el track.
+        self._pos = None
+
+    def _register_own_hwnds(self) -> None:
+        """Anota los handles de la ventana de esta nota en el registro global.
+
+        Se guarda tambien el padre porque Tk envuelve sus toplevels y el handle
+        que ve el sistema como ventana activa puede ser el del envoltorio.
+        """
+        hwnds: Set[int] = set()
+        try:
+            self.top.update_idletasks()
+            wid = int(self.top.winfo_id())
+            hwnds.add(wid)
+            parent = self.backend.get_window_parent(wid)
+            if parent:
+                hwnds.add(parent)
+        except Exception:
+            pass
+        self._own_hwnds = hwnds
+        WindowNote.note_hwnds |= hwnds
+
+    # -------------------------------------------------------------- Arrastre
 
     def _on_drag_start(self, event: tk.Event) -> None:
         """Guarda el punto donde el usuario agarro la nota para arrastrarla."""
@@ -149,47 +240,113 @@ class WindowNote:
         new_x = self._drag_geom[0] + dx
         new_y = self._drag_geom[1] + dy
         self.top.geometry(f"+{new_x}+{new_y}")
+        self._pos = (new_x, new_y)
 
         rect = self.backend.get_window_rect(self.handle)
         if rect:
             left, top, _right, _bottom = rect
             self._manual_offset = (new_x - left, new_y - top)
 
-    def _position_near_window(self) -> None:
-        """Coloca la nota junto a la ventana anclada.
+    # ------------------------------------------------------------ Seguimiento
 
-        Por defecto en la esquina superior derecha de la ventana; si el usuario
-        ya la arrastro, respeta el offset manual que fijo.
+    def _target_pos(self) -> Optional[Tuple[int, int]]:
+        """Calcula donde deberia estar la nota segun la ventana anclada.
+
+        Devuelve: (x, y) absolutos, o None si la ventana ya no se puede leer.
         """
         rect = self.backend.get_window_rect(self.handle)
         if not rect:
-            return
+            return None
         left, top, right, _bottom = rect
         if self._manual_offset is not None:
-            x = left + self._manual_offset[0]
-            y = top + self._manual_offset[1]
-        else:
-            x = right - NOTE_WIDTH - 10
-            y = top + 30
-        self.top.geometry(f"+{int(x)}+{int(y)}")
+            return (left + self._manual_offset[0], top + self._manual_offset[1])
+        margin = round(BASE_MARGIN * self._scale)
+        return (right - self._w - margin, top + round(BASE_TOP_OFFSET * self._scale))
+
+    def _position_near_window(self) -> None:
+        """Coloca la nota junto a la ventana anclada, si hace falta moverla.
+
+        Solo llama a geometry() cuando la posicion cambia: hacerlo en cada
+        tick a 30 fps provoca parpadeo y trabajo inutil.
+        """
+        target = self._target_pos()
+        if target is None:
+            return
+        if target == self._pos:
+            return
+        self._pos = target
+        self.top.geometry(f"{self._w}x{self._h}+{int(target[0])}+{int(target[1])}")
+
+    def _note_rect(self) -> Optional[Rect]:
+        """Devuelve el rectangulo que ocupa la nota, o None si aun no tiene sitio."""
+        if self._pos is None:
+            return None
+        x, y = self._pos
+        return (x, y, x + self._w, y + self._h)
+
+    def _should_be_visible(self) -> bool:
+        """Decide si la nota debe verse ahora mismo.
+
+        La nota se esconde cuando su ventana esta minimizada u oculta, y cuando
+        otra ventana en primer plano la tapa. El solape se comprueba de verdad
+        (en vez de esconderla siempre que su ventana no tenga el foco) para no
+        hacerla desaparecer cuando la ventana en primer plano esta en OTRO
+        monitor y no la esta tapando en absoluto.
+        """
+        if not self.backend.is_window_visible(self.handle):
+            return False
+        if self.backend.is_window_minimized(self.handle):
+            return False
+
+        foreground = self.backend.get_active_window()
+        if foreground is None:
+            return True
+        # La propia ventana anclada, o esta misma nota mientras se escribe.
+        if foreground == self.handle or foreground in self._own_hwnds:
+            return True
+        return not rects_overlap(
+            self.backend.get_window_rect(foreground), self._note_rect()
+        )
+
+    def _set_visible(self, visible: bool) -> None:
+        """Muestra u oculta la nota, sin repetir la llamada si ya esta asi."""
+        if visible == self._visible:
+            return
+        self._visible = visible
+        try:
+            if visible:
+                self.top.deiconify()
+                # Windows pierde estos atributos al volver de withdraw().
+                self.top.overrideredirect(True)
+                self.top.attributes("-topmost", True)
+            else:
+                self.top.withdraw()
+        except tk.TclError:
+            pass
 
     def _track(self) -> None:
-        """Sigue a la ventana anclada; la archiva cuando esa ventana desaparece."""
+        """Sigue a la ventana anclada: posicion, escala y visibilidad."""
         if not self._alive:
             return
         if not self.backend.is_window(self.handle):
             self._archive_and_close(manual=False)
             return
+
+        self._apply_scale(self.backend.get_window_dpi(self.handle))
         self._position_near_window()
+        self._set_visible(self._should_be_visible())
         self.top.after(TRACK_INTERVAL_MS, self._track)
 
     def focus(self) -> None:
         """Trae la nota al frente y pone el cursor en el area de texto."""
         if not self._alive:
             return
+        self._set_visible(True)
         self.top.lift()
         self.top.attributes("-topmost", True)
         self.text.focus_force()
+
+    # -------------------------------------------------------------- Archivado
 
     def _save_to_file(self, content: str, manual: bool) -> None:
         """Escribe la nota como Markdown con su cabecera de metadatos.
@@ -234,6 +391,7 @@ class WindowNote:
                 print(f"[stickies-notes] No se pudo archivar la nota: {exc}")
 
         WindowNote.open_notes.pop(self.handle, None)
+        WindowNote.note_hwnds -= self._own_hwnds
         try:
             self.top.destroy()
         except tk.TclError:

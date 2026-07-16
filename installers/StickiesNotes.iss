@@ -12,7 +12,7 @@
 ; encuentra el BOM, y los acentos del asistente saldrian corruptos.
 
 #define MyAppName "stickies-notes"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "César Bermúdez Rodríguez"
 #define MyAppURL "https://github.com/osstsawi/stickies-notes"
 #define MyAppExeName "StickiesNotes.exe"
@@ -29,6 +29,10 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
 VersionInfoVersion={#MyAppVersion}
+
+; Debe coincidir con single_instance.MUTEX_NAME: asi Inno detecta por si mismo
+; que la app esta corriendo y lo avisa, en vez de depender solo del taskkill.
+AppMutex=StickiesNotes_SingleInstance
 
 ; Instalacion por usuario: sin UAC, sin pedir admin. Con PrivilegesRequired=lowest
 ; el {autopf} resuelve a %LOCALAPPDATA%\Programs, igual que hace VS Code.

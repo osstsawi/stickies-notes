@@ -29,7 +29,7 @@ from PyInstaller.utils.win32.versioninfo import (
 
 ONEDIR = os.environ.get("STICKIES_ONEDIR") == "1"
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 _v = tuple(int(p) for p in VERSION.split(".")) + (0,)
 
 ICON = os.path.join(SPECPATH, "icon.ico")  # noqa: F821 - SPECPATH lo inyecta PyInstaller
@@ -38,11 +38,13 @@ SRC = os.path.join(SPECPATH, "..", "src")  # noqa: F821
 # win32gui/win32con se importan de forma DIFERIDA dentro de WinBackend.__init__,
 # asi que PyInstaller no los detecta por analisis estatico. Sin declararlos aqui
 # el .exe compila pero revienta en runtime al crear el backend.
-hiddenimports = ["win32gui", "win32con"]
+hiddenimports = ["win32gui", "win32con", "win32api", "win32event", "winerror"]
 
-# keyboard carga sus backends de plataforma dinamicamente: hay que meter todo
-# el paquete o las hotkeys globales no se registran en el binario.
+# keyboard y pystray cargan sus backends de plataforma dinamicamente: hay que
+# meter el paquete entero o las hotkeys globales y el icono de bandeja no se
+# registran en el binario.
 hiddenimports += collect_submodules("keyboard")
+hiddenimports += collect_submodules("pystray")
 
 # Metadatos que Windows muestra en Propiedades del archivo. Sin esto el .exe
 # aparece sin nombre ni version, que es medio camino a parecer sospechoso.
@@ -75,7 +77,9 @@ a = Analysis(
     [os.path.join(SRC, "stickies_notes", "__main__.py")],
     pathex=[SRC],
     binaries=[],
-    datas=[],
+    # El icono viaja DENTRO del binario (no solo como icono del .exe): lo carga
+    # pystray en runtime para pintarlo en la bandeja. Ver tray._icon_path().
+    datas=[(ICON, ".")],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

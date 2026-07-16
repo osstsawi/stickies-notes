@@ -83,9 +83,9 @@ cp -r "${REPO_ROOT}/src" "$SRC_DIR"
 step "Creando entorno virtual..."
 [[ -d "$VENV_DIR" ]] || python3 -m venv --system-site-packages "$VENV_DIR"
 
-step "Instalando dependencias (python-xlib, pynput)..."
+step "Instalando dependencias (python-xlib, pynput, pystray, pillow)..."
 "${VENV_DIR}/bin/python" -m pip install --upgrade pip --quiet
-"${VENV_DIR}/bin/python" -m pip install --quiet python-xlib pynput
+"${VENV_DIR}/bin/python" -m pip install --quiet python-xlib pynput pystray pillow
 
 if [[ "$NO_AUTOSTART" -eq 0 ]]; then
     if have_user_systemd; then

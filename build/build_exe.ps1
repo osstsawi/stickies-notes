@@ -81,9 +81,9 @@ if (-not (Test-Path $VenvDir)) {
 }
 $venvPython = Join-Path $VenvDir "Scripts\python.exe"
 
-Write-Step "Instalando pyinstaller, pywin32, keyboard..."
+Write-Step "Instalando pyinstaller, pywin32, keyboard, pystray, pillow..."
 & $venvPython -m pip install --upgrade pip --quiet
-& $venvPython -m pip install --quiet pyinstaller pywin32 keyboard
+& $venvPython -m pip install --quiet pyinstaller pywin32 keyboard pystray pillow
 
 Push-Location $RepoRoot
 try {

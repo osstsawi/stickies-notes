@@ -14,10 +14,17 @@ ventana. Nada que recordar guardar.
 
 El anclaje es por **handle de ventana**: `HWND` en Windows, *window id* de X11 en
 Linux. Eso significa que dos ventanas del mismo programa tienen notas separadas
-—dos pestañas del navegador en ventanas distintas, dos terminales, dos Excel—.
+—dos navegadores en ventanas distintas, dos terminales, dos Excel—.
 
-Cada 300 ms la nota consulta si su ventana sigue viva. Cuando desaparece, la nota
-se archiva y se destruye.
+La nota consulta a su ventana unas 30 veces por segundo para seguirla sin
+rezagarse. Cuando la ventana desaparece, la nota se archiva y se destruye.
+
+> **Ventanas, no pestañas.** El sistema operativo solo expone ventanas; las
+> pestañas de Chrome o Edge son un invento interno del navegador y no tienen
+> handle propio, así que **una nota no puede seguir a una pestaña**. Todas las
+> pestañas de una misma ventana comparten su nota. Si quieres una nota para una
+> pestaña concreta, arrástrala fuera para convertirla en su propia ventana: ahí
+> pasa a tener handle y su propia nota.
 
 ## Instalación en Windows — descargar y usar
 
@@ -98,7 +105,10 @@ pip install -e .
 python -m stickies_notes
 ```
 
-## Hotkeys
+## Uso
+
+La app vive en la **bandeja del sistema**, junto al reloj. Ese icono es su única
+cara visible: haz clic derecho para el menú, o doble clic para crear una nota.
 
 | Atajo | Qué hace |
 |---|---|
@@ -106,17 +116,32 @@ python -m stickies_notes
 | `Ctrl+Alt+Q` | Archiva todas las notas abiertas y cierra la app |
 | `✕` en la nota | Archiva esa nota manualmente |
 
+Desde el menú de la bandeja: *Nueva nota*, *Abrir carpeta de notas* y *Salir*.
+
 La nota se arrastra desde su barra amarilla. Si la mueves a mano, recuerda esa
 posición relativa y la mantiene mientras la ventana se desplaza.
+
+**La nota se esconde sola** cuando su ventana se minimiza, se oculta, o queda
+tapada por otra ventana que esté delante. Si la ventana que tienes delante está
+en otro monitor y no la tapa, la nota sigue a la vista.
+
+Solo puede correr **una instancia**: si la lanzas dos veces, la segunda te avisa
+y se cierra en vez de duplicar las notas.
 
 ## Dónde quedan las notas
 
 | Sistema | Ruta por defecto |
 |---|---|
-| Windows | `~\Documents\StickiesNotes` |
+| Windows | `%USERPROFILE%\StickiesNotes` |
 | Linux | `~/StickiesNotes` |
 
-Se cambia con la variable de entorno `STICKIES_NOTES_DIR`.
+Se cambia con la variable de entorno `STICKIES_NOTES_DIR`, y se abre de un clic
+desde el menú de la bandeja.
+
+> No se usa la carpeta *Documentos* a propósito: en Windows suele estar
+> redirigida a OneDrive y además está traducida ("Documentos"), así que
+> `Documents\StickiesNotes` acababa siendo una carpeta fantasma distinta de la que
+> ves en el Explorador —o peor, tus notas sincronizadas a la nube sin pedirlo—.
 
 El nombre de archivo es `AAAA-MM-DD_HHMMSS__<título de la ventana>.md`, y dentro
 lleva una cabecera con cuándo se creó, cuándo se archivó y por qué:

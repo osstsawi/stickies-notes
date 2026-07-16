@@ -80,9 +80,9 @@ if (-not (Test-Path $VenvDir)) {
 $venvPython = Join-Path $VenvDir "Scripts\python.exe"
 $venvPythonw = Join-Path $VenvDir "Scripts\pythonw.exe"
 
-Write-Step "Instalando dependencias (pywin32, keyboard)..."
+Write-Step "Instalando dependencias (pywin32, keyboard, pystray, pillow)..."
 & $venvPython -m pip install --upgrade pip --quiet
-& $venvPython -m pip install --quiet pywin32 keyboard
+& $venvPython -m pip install --quiet pywin32 keyboard pystray pillow
 
 if (-not $NoAutostart) {
     Write-Step "Registrando autoinicio sin consola..."
