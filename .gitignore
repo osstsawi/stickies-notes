@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+
+# Entornos virtuales
+.venv/
+venv/
+.venv-build/
+
+# PyInstaller
+dist/
+build/*.toc
+build/*.pkg
+build/StickiesNotes/
+*.manifest
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Notas archivadas (por si alguien apunta el archive dir al repo)
+StickiesNotes/
+*.local.md

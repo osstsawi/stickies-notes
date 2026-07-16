@@ -1,0 +1,78 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Compilar .exe (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pywin32 keyboard
+
+      - name: Validar que los modulos compilan
+        run: python -m py_compile (Get-ChildItem src/stickies_notes/*.py)
+
+      - name: Compilar con PyInstaller
+        run: pyinstaller --noconfirm build/StickiesNotes.spec
+
+      - name: Publicar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StickiesNotes-exe
+          path: dist/StickiesNotes.exe
+          if-no-files-found: error
+
+  linux:
+    name: Validar codigo Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar tkinter
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install python-xlib pynput
+
+      - name: Validar que los modulos compilan
+        run: python -m py_compile src/stickies_notes/*.py
+
+  release:
+    name: Publicar release
+    needs: [windows, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar .exe
+        uses: actions/download-artifact@v4
+        with:
+          name: StickiesNotes-exe
+
+      - name: Crear release con el binario
+        uses: softprops/action-gh-release@v2
+        with:
+          files: StickiesNotes.exe
+          generate_release_notes: true
