@@ -19,32 +19,59 @@ Linux. Eso significa que dos ventanas del mismo programa tienen notas separadas
 Cada 300 ms la nota consulta si su ventana sigue viva. Cuando desaparece, la nota
 se archiva y se destruye.
 
-## Requisitos
+## Instalación en Windows — descargar y usar
 
-- **Python 3.9+** con `tkinter`.
-- **Windows 10/11:** `pywin32` y `keyboard`.
-- **Linux con X11:** `python-xlib` y `pynput`.
+**No necesitas Python.** Descarga el instalador de la
+[última versión](https://github.com/osstsawi/stickies-notes/releases/latest),
+ejecútalo y listo:
 
-> **Wayland:** la app consulta las ventanas por X11. En una sesión Wayland pura no
-> puede leer la ventana activa ni su posición; funciona solo con aplicaciones bajo
-> XWayland. Para uso real, usa una sesión Xorg.
+| Descarga | Qué es |
+|---|---|
+| **`StickiesNotes-Setup.exe`** | Instalador normal: asistente, acceso directo, autoinicio opcional y desinstalador en *Agregar o quitar programas*. **Empieza por aquí.** |
+| `StickiesNotes.exe` | Portable: un solo archivo, no instala nada, lo ejecutas y ya. Para llevar en un USB. |
 
-## Instalación
+El instalador no pide permisos de administrador: instala solo para tu usuario en
+`%LOCALAPPDATA%\Programs\StickiesNotes`.
 
-### Windows
+> **SmartScreen / antivirus.** Al abrirlo puede que Windows lo bloquee con un
+> aviso de editor desconocido, y que Defender lo marque. Es esperable: la app
+> instala un hook global de teclado (así detecta `Ctrl+Alt+N` desde cualquier
+> ventana) y el binario no está firmado, porque firmarlo cuesta un certificado de
+> pago. Para permitirlo: *Más información* → *Ejecutar de todas formas*. Si no te
+> fías del binario —lo cual es razonable—, compílalo tú mismo con
+> `.\build\build_exe.ps1`, o revisa el
+> [workflow](.github/workflows/build.yml) que lo construye desde este código.
+
+### Compilar el instalador tú mismo
+
+Necesitas Python 3.9+ y [Inno Setup 6](https://jrsoftware.org/isdl.php):
 
 ```powershell
 git clone https://github.com/osstsawi/stickies-notes.git
 cd stickies-notes
-.\installers\install_windows.ps1
+.\build\build_exe.ps1
 ```
 
-Copia el código a `%LOCALAPPDATA%\StickiesNotes`, crea el venv con sus
-dependencias y deja la app arrancando con Windows **sin ventana de consola**.
+Deja en `dist\` el instalador, el portable y el build `--onedir`. Es el mismo
+script que corre el CI, así que produce exactamente lo que se publica.
 
-Opciones: `-NoAutostart` para instalar sin autoinicio, `-Uninstall` para quitarla.
+### Instalar desde el código (con Python)
 
-### Linux (X11)
+Si prefieres correrlo desde las fuentes, `.\installers\install_windows.ps1` copia
+el código a `%LOCALAPPDATA%\StickiesNotes`, crea un venv con sus dependencias y
+deja la app arrancando con Windows sin ventana de consola. Opciones:
+`-NoAutostart`, `-Uninstall`.
+
+## Instalación en Linux (X11)
+
+En Linux no hay binario precompilado: se instala desde el código. Necesitas
+**Python 3.9+** con `tkinter`; el instalador añade `python-xlib` y `pynput` en su
+propio venv.
+
+> **Wayland:** la app consulta las ventanas por X11. En una sesión Wayland pura no
+> puede leer la ventana activa ni su posición; funciona solo con aplicaciones bajo
+> XWayland. Para uso real, usa una sesión Xorg. El instalador te avisa si detecta
+> Wayland.
 
 ```bash
 git clone https://github.com/osstsawi/stickies-notes.git
@@ -108,26 +135,33 @@ Revisar la fila 42, el total no cuadra con el resumen.
 
 Las notas vacías no generan archivo.
 
-## Compilar a `.exe`
+## Cómo se empaqueta
 
-```powershell
-.\build\build_exe.ps1
-```
+`build\build_exe.ps1` produce las tres salidas de Windows con PyInstaller +
+Inno Setup, y es lo que corre el CI en cada push:
 
-Deja el binario en `dist\StickiesNotes.exe`, sin necesidad de Python instalado en
-la máquina destino. Con el `.exe` el autoinicio no necesita el `.vbs`: basta un
-acceso directo en `shell:startup`, porque se compila en modo `--windowed`.
+| Salida | Modo | Para qué |
+|---|---|---|
+| `dist\StickiesNotes-Setup.exe` | Inno Setup | El instalador que se publica |
+| `dist\StickiesNotes.exe` | `--onefile` | El portable de un solo archivo |
+| `dist\StickiesNotes\` | `--onedir` | Lo que el instalador empaqueta dentro |
 
-Dos avisos que valen la pena:
+El instalador usa el build `--onedir` a propósito: `--onefile` se descomprime en
+`%TEMP%` en **cada** arranque, lo que cuesta tiempo y falla si la ruta de `%TEMP%`
+lleva caracteres no ASCII (usuarios con tildes en el nombre). Una vez instalado no
+hay razón para pagar ese precio. El portable sí sigue en `--onefile`, porque ahí
+el archivo único es justamente la gracia — si te da problemas por tildes, usa el
+instalador o apunta `TMP`/`TEMP` a una ruta ASCII.
 
-- **Antivirus:** el hook global de teclado + un binario sin firmar disparan falsos
-  positivos en Defender y SmartScreen. Para uso propio se permite a mano; para
-  distribuirlo, hay que firmarlo.
-- **Rutas con tildes:** el modo `--onefile` se descomprime en `%TEMP%` en cada
-  arranque y puede fallar si tu usuario lleva acentos. Usa `--onedir` o apunta
-  `TMP`/`TEMP` a una ruta ASCII.
+El icono (`build\icon.ico`) va versionado; se regenera con
+`python build\make_icon.py` (requiere Pillow, que no es dependencia de la app).
 
 ## Desinstalación
+
+Si usaste el instalador: **Configuración → Aplicaciones → stickies-notes →
+Desinstalar**, como cualquier programa de Windows.
+
+Desde el código:
 
 ```powershell
 .\installers\install_windows.ps1 -Uninstall   # Windows
@@ -137,7 +171,7 @@ Dos avisos que valen la pena:
 ./installers/install_linux.sh --uninstall     # Linux
 ```
 
-Ninguno de los dos toca tus notas archivadas.
+Ninguna de las tres vías toca tus notas archivadas.
 
 ## Licencia
 

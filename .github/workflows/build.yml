@@ -10,30 +10,44 @@ on:
 
 jobs:
   windows:
-    name: Compilar .exe (Windows)
+    name: Compilar instalador y portable (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller pywin32 keyboard
 
       - name: Validar que los modulos compilan
         run: python -m py_compile (Get-ChildItem src/stickies_notes/*.py)
 
-      - name: Compilar con PyInstaller
-        run: pyinstaller --noconfirm build/StickiesNotes.spec
+      # Se invoca el mismo script que documenta el README, para que lo que se
+      # publica sea exactamente lo que un usuario obtiene al compilar en local.
+      # Inno Setup ya viene instalado en la imagen windows-latest.
+      - name: Compilar portable + onedir + instalador
+        run: .\build\build_exe.ps1
 
-      - name: Publicar artifact
-        uses: actions/upload-artifact@v4
+      - name: Verificar que salieron los tres artefactos
+        run: |
+          $missing = @()
+          foreach ($p in @("dist\StickiesNotes-Setup.exe", "dist\StickiesNotes.exe", "dist\StickiesNotes\StickiesNotes.exe")) {
+            if (-not (Test-Path $p)) { $missing += $p }
+          }
+          if ($missing) { throw "Faltan artefactos: $($missing -join ', ')" }
+          Get-ChildItem dist\*.exe | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Publicar instalador
+        uses: actions/upload-artifact@v7
         with:
-          name: StickiesNotes-exe
+          name: StickiesNotes-Setup
+          path: dist/StickiesNotes-Setup.exe
+          if-no-files-found: error
+
+      - name: Publicar portable
+        uses: actions/upload-artifact@v7
+        with:
+          name: StickiesNotes-portable
           path: dist/StickiesNotes.exe
           if-no-files-found: error
 
@@ -41,9 +55,9 @@ jobs:
     name: Validar codigo Linux
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -66,13 +80,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Descargar .exe
-        uses: actions/download-artifact@v4
+      - name: Descargar artefactos
+        uses: actions/download-artifact@v8
         with:
-          name: StickiesNotes-exe
+          path: artifacts
+          merge-multiple: true
 
-      - name: Crear release con el binario
-        uses: softprops/action-gh-release@v2
+      - name: Crear release con instalador y portable
+        uses: softprops/action-gh-release@v3
         with:
-          files: StickiesNotes.exe
+          files: |
+            artifacts/StickiesNotes-Setup.exe
+            artifacts/StickiesNotes.exe
           generate_release_notes: true
