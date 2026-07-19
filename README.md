@@ -79,6 +79,15 @@ propio venv.
 > puede leer la ventana activa ni su posición; funciona solo con aplicaciones bajo
 > XWayland. Para uso real, usa una sesión Xorg. El instalador te avisa si detecta
 > Wayland.
+>
+> **Atajos en Wayland:** el compositor no entrega el teclado a las escuchas X11
+> de `pynput`, así que ahí los atajos globales se registran en el escritorio. En
+> **KDE Plasma** el instalador lo hace solo (vía kglobalaccel): `Ctrl+Alt+N` y
+> `Ctrl+Alt+Q` los captura el compositor y disparan la app por su **socket de
+> control**. En otros escritorios, asigna un atajo de sistema al comando
+> `<venv>/bin/python -m stickies_notes new` (y `quit`). El socket también sirve
+> desde la terminal: `python -m stickies_notes new|quit` ordena a la instancia
+> en marcha.
 
 ```bash
 git clone https://github.com/osstsawi/stickies-notes.git

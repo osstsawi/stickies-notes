@@ -33,6 +33,7 @@ class NoteManager:
         self.config = Config()
         self.config.ensure_dirs()
         self._listener = None
+        self._ipc = None
         self._tray: Optional[TrayIcon] = None
         self._last_create = 0.0
         self._last_quit = 0.0
@@ -144,6 +145,17 @@ class NoteManager:
         )
         self._listener.start()
 
+        # pynput escucha por X11: en Wayland el compositor no le entrega el
+        # teclado y las hotkeys mueren en silencio. El socket de control cubre
+        # ese caso — el atajo se registra en el escritorio (el instalador lo
+        # hace en KDE) y dispara `python -m stickies_notes new|quit`.
+        from stickies_notes import ipc
+
+        try:
+            self._ipc = ipc.ControlServer(self.dispatch_create, self.dispatch_quit)
+        except OSError as exc:
+            print(f"[stickies-notes] Canal de control no disponible: {exc}")
+
     def run(self) -> None:
         """Arranca la aplicacion: hotkeys, bandeja y mainloop; limpia al salir."""
         self._setup_hotkeys()
@@ -163,6 +175,8 @@ class NoteManager:
                 self._tray.stop()
             if self._listener is not None:
                 self._listener.stop()
+            if self._ipc is not None:
+                self._ipc.close()
 
 
 def _to_pynput(hotkey: str) -> str:

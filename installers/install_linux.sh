@@ -17,6 +17,14 @@ SERVICE_NAME="${APP_NAME}.service"
 SERVICE_PATH="${HOME}/.config/systemd/user/${SERVICE_NAME}"
 DESKTOP_PATH="${HOME}/.config/autostart/${APP_NAME}.desktop"
 
+KDE_APPS_DIR="${HOME}/.local/share/applications"
+DESKTOP_NEW="${KDE_APPS_DIR}/stickies-notes-new.desktop"
+DESKTOP_QUIT="${KDE_APPS_DIR}/stickies-notes-quit.desktop"
+
+# Codigos de tecla Qt: Ctrl=0x04000000 + Alt=0x08000000 + letra ASCII.
+QTKEY_CTRL_ALT_N=201326670  # 0x0C00004E
+QTKEY_CTRL_ALT_Q=201326673  # 0x0C000051
+
 NO_AUTOSTART=0
 UNINSTALL=0
 
@@ -30,6 +38,24 @@ done
 
 step() { printf '\033[36m==> %s\033[0m\n' "$1"; }
 have_user_systemd() { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }
+kde_wayland() { [[ "${XDG_SESSION_TYPE:-}" == "wayland" && "${XDG_CURRENT_DESKTOP:-}" == *KDE* ]]; }
+
+# Registra en kglobalaccel (KDE) un atajo que lanza un .desktop. Es la via que
+# funciona en Wayland: el compositor captura la combinacion y ejecuta
+# `python -m stickies_notes new|quit`, que llega a la instancia viva por su
+# socket de control. En X11 no hace falta (pynput captura directo).
+kglobal_bind() {  # $1=archivo.desktop  $2=descripcion  $3=keycode Qt
+    local action="['$1','_launch','stickies-notes','$2']"
+    gdbus call --session --dest org.kde.kglobalaccel --object-path /kglobalaccel \
+        --method org.kde.KGlobalAccel.doRegister "$action" >/dev/null
+    gdbus call --session --dest org.kde.kglobalaccel --object-path /kglobalaccel \
+        --method org.kde.KGlobalAccel.setShortcut "$action" "[$3]" 4 >/dev/null
+}
+
+kglobal_unbind() {  # $1=archivo.desktop
+    gdbus call --session --dest org.kde.kglobalaccel --object-path /kglobalaccel \
+        --method org.kde.KGlobalAccel.unregister "$1" "_launch" >/dev/null 2>&1 || true
+}
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
     step "Desinstalando ${APP_NAME}..."
@@ -40,6 +66,11 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         echo "    Servicio systemd eliminado."
     fi
     [[ -f "$DESKTOP_PATH" ]] && rm -f "$DESKTOP_PATH" && echo "    Autostart XDG eliminado."
+    if [[ -f "$DESKTOP_NEW" || -f "$DESKTOP_QUIT" ]]; then
+        command -v gdbus >/dev/null 2>&1 && { kglobal_unbind "stickies-notes-new.desktop"; kglobal_unbind "stickies-notes-quit.desktop"; }
+        rm -f "$DESKTOP_NEW" "$DESKTOP_QUIT"
+        echo "    Atajos KDE eliminados."
+    fi
     [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR" && echo "    Codigo y venv eliminados."
     echo
     echo -e "\033[32mListo. Tus notas archivadas NO se tocaron.\033[0m"
@@ -108,7 +139,10 @@ RestartSec=5
 WantedBy=graphical-session.target
 EOF
         systemctl --user daemon-reload
-        systemctl --user enable --now "$SERVICE_NAME"
+        systemctl --user enable "$SERVICE_NAME"
+        # restart y no `enable --now`: en una reinstalacion el servicio ya esta
+        # activo y hay que recargar el codigo recien copiado.
+        systemctl --user restart "$SERVICE_NAME"
         echo "    Servicio ${SERVICE_NAME} activo."
     else
         step "Sin systemd de usuario: usando autostart XDG..."
@@ -127,6 +161,37 @@ EOF
     fi
 else
     step "Autoinicio omitido (--no-autostart)."
+fi
+
+if kde_wayland; then
+    if command -v gdbus >/dev/null 2>&1; then
+        step "Registrando atajos globales en KDE (Wayland via kglobalaccel)..."
+        mkdir -p "$KDE_APPS_DIR"
+        cat > "$DESKTOP_NEW" <<EOF
+[Desktop Entry]
+Type=Application
+Name=stickies-notes: nueva nota
+Exec=${VENV_DIR}/bin/python -m stickies_notes new
+Path=${SRC_DIR}
+NoDisplay=true
+Terminal=false
+EOF
+        cat > "$DESKTOP_QUIT" <<EOF
+[Desktop Entry]
+Type=Application
+Name=stickies-notes: archivar todo y salir
+Exec=${VENV_DIR}/bin/python -m stickies_notes quit
+Path=${SRC_DIR}
+NoDisplay=true
+Terminal=false
+EOF
+        kglobal_bind "stickies-notes-new.desktop"  "Nueva nota"              "$QTKEY_CTRL_ALT_N"
+        kglobal_bind "stickies-notes-quit.desktop" "Archivar todo y salir"   "$QTKEY_CTRL_ALT_Q"
+        echo "    Ctrl+Alt+N y Ctrl+Alt+Q registrados en el compositor."
+    else
+        echo "    Sesion KDE Wayland sin gdbus: asigna Ctrl+Alt+N a"
+        echo "    '${VENV_DIR}/bin/python -m stickies_notes new' en Preferencias > Atajos."
+    fi
 fi
 
 echo
