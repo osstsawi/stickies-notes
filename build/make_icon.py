@@ -10,73 +10,97 @@ quiere retocar el icono. Requiere Pillow (no es dependencia de la app):
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
-# Mismos colores que la nota real (note.py).
-COLOR_HEADER = (245, 213, 71)
-COLOR_PAPER = (255, 248, 196)
-COLOR_LINE = (198, 168, 60)
-COLOR_FOLD = (222, 190, 90)
-COLOR_SHADOW = (0, 0, 0, 40)
+# Amarillo post-it con volumen: mas claro arriba, mas calido abajo.
+PAPER_TOP = (255, 233, 133)
+PAPER_BOTTOM = (247, 201, 72)
+FOLD_TOP = (224, 169, 62)
+FOLD_BOTTOM = (201, 143, 43)
+COLOR_INK = (122, 106, 51)
+SHADOW_ALPHA = 80
 
 # Se dibuja grande y se reduce: sale con antialiasing gratis.
 CANVAS = 1024
 SIZES = [16, 32, 48, 64, 128, 256]
+
+# Inclinacion de la nota: es lo que la hace leer "pegada a mano" y no como un
+# cuadrado amarillo generico en la bandeja.
+TILT_DEG = -7
+
+
+def _gradient(width: int, height: int, top_color, bottom_color) -> Image.Image:
+    """Devuelve un degradado vertical RGBA de top_color a bottom_color."""
+    column = Image.new("RGBA", (1, height))
+    last = height - 1
+    for y in range(height):
+        t = y / last
+        column.putpixel(
+            (0, y),
+            tuple(round(a + (b - a) * t) for a, b in zip(top_color, bottom_color)),
+        )
+    return column.resize((width, height))
 
 
 def draw_note(size: int) -> Image.Image:
     """Dibuja la nota adhesiva en un lienzo cuadrado RGBA.
 
     Recibe: el lado del lienzo en pixeles.
-    Devuelve: la imagen RGBA con la nota centrada.
+    Devuelve: la imagen RGBA con la nota inclinada y su sombra.
     """
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    m = size * 0.09          # margen exterior
+    # Margen amplio: la rotacion final necesita sitio para no recortar esquinas.
+    m = size * 0.16
     left, top = m, m
     right, bottom = size - m, size - m
-    fold = size * 0.28       # tamano de la esquina doblada
-    radius = size * 0.045
+    fold = size * 0.30
+    radius = size * 0.05
 
-    # Sombra suelta bajo la nota.
-    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle(
-        [left + size * 0.02, top + size * 0.03, right + size * 0.02, bottom + size * 0.03],
-        radius=radius,
-        fill=COLOR_SHADOW,
+    # Silueta de la nota: rectangulo redondeado menos la esquina doblada.
+    mask = Image.new("L", (size, size), 0)
+    md = ImageDraw.Draw(mask)
+    md.rounded_rectangle([left, top, right, bottom], radius=radius, fill=255)
+    md.polygon(
+        [(right - fold, bottom), (right, bottom - fold), (right, bottom)],
+        fill=0,
     )
-    img.alpha_composite(shadow)
 
-    # Cuerpo color papel, con la esquina inferior derecha recortada.
-    body = [
-        (left, top),
-        (right, top),
-        (right, bottom - fold),
-        (right - fold, bottom),
-        (left, bottom),
-    ]
-    d.polygon(body, fill=COLOR_PAPER)
-    d.rounded_rectangle([left, top, right, top + size * 0.2], radius=radius, fill=COLOR_HEADER)
-    d.rectangle([left, top + size * 0.1, right, top + size * 0.2], fill=COLOR_HEADER)
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
 
-    # Renglones escritos: sugieren texto sin depender de una fuente.
-    line_x0 = left + size * 0.10
-    line_h = max(1, int(size * 0.028))
-    for i, width_factor in enumerate((0.62, 0.72, 0.48)):
-        y = top + size * 0.31 + i * size * 0.13
+    # Sombra suave y desplazada, a partir de la propia silueta.
+    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    shadow.paste((0, 0, 0, SHADOW_ALPHA), (round(size * 0.015), round(size * 0.03)), mask)
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(size * 0.02)))
+
+    # Papel con degradado, recortado a la silueta.
+    img.paste(_gradient(size, size, (*PAPER_TOP, 255), (*PAPER_BOTTOM, 255)), (0, 0), mask)
+
+    d = ImageDraw.Draw(img)
+
+    # Renglones escritos: gruesos, para que sobrevivan a los 22 px de la bandeja.
+    line_x0 = left + size * 0.11
+    line_h = size * 0.055
+    for width_factor, y_factor in ((0.56, 0.24), (0.64, 0.42), (0.40, 0.60)):
+        y = top + (bottom - top) * y_factor
         d.rounded_rectangle(
             [line_x0, y, line_x0 + (right - left) * width_factor, y + line_h],
             radius=line_h / 2,
-            fill=COLOR_LINE,
+            fill=COLOR_INK,
         )
 
-    # La esquina doblada, que es lo que lo hace leer como "sticky note".
-    d.polygon(
+    # La esquina doblada, con su propio degradado y una linea de pliegue.
+    fold_mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(fold_mask).polygon(
         [(right - fold, bottom), (right, bottom - fold), (right - fold, bottom - fold)],
-        fill=COLOR_FOLD,
+        fill=255,
     )
-    return img
+    img.paste(_gradient(size, size, (*FOLD_TOP, 255), (*FOLD_BOTTOM, 255)), (0, 0), fold_mask)
+    d.line(
+        [(right - fold, bottom), (right, bottom - fold)],
+        fill=(*FOLD_BOTTOM, 255),
+        width=max(1, round(size * 0.006)),
+    )
+
+    return img.rotate(TILT_DEG, resample=Image.BICUBIC, center=(size / 2, size / 2))
 
 
 def main() -> None:

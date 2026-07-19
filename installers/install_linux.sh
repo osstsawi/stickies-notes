@@ -110,6 +110,10 @@ fi
 rm -rf "$SRC_DIR"
 mkdir -p "$INSTALL_DIR"
 cp -r "${REPO_ROOT}/src" "$SRC_DIR"
+# El icono de bandeja: tray.py lo busca en <raiz>/build/icon.ico relativo al
+# codigo; sin esta copia cae al cuadrado amarillo liso de respaldo.
+mkdir -p "${INSTALL_DIR}/build"
+cp "${REPO_ROOT}/build/icon.ico" "${INSTALL_DIR}/build/icon.ico"
 
 step "Creando entorno virtual..."
 [[ -d "$VENV_DIR" ]] || python3 -m venv --system-site-packages "$VENV_DIR"
