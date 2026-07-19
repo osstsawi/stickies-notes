@@ -61,6 +61,15 @@ class Config:
     hotkey_new: str = "ctrl+alt+n"
     hotkey_quit: str = "ctrl+alt+q"
 
+    @property
+    def draft_dir(self) -> Path:
+        """Carpeta oculta donde cada nota abierta autoguarda su borrador.
+
+        Si la app muere con notas abiertas (crash, kill, apagon), lo escrito
+        sobrevive aqui y se recupera al siguiente arranque.
+        """
+        return self.archive_dir / ".borradores"
+
     def ensure_dirs(self) -> None:
         """Crea el directorio de archivo si no existe."""
         self.archive_dir.mkdir(parents=True, exist_ok=True)

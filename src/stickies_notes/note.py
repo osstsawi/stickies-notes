@@ -33,6 +33,10 @@ BASE_TOP_OFFSET = 30
 # rapido no se nota en CPU.
 TRACK_INTERVAL_MS = 33
 
+# Cada cuantos ticks del track se autoguarda el borrador (~2 s). Solo escribe
+# si el contenido cambio desde la ultima vez.
+AUTOSAVE_TICKS = 60
+
 # Prefijo del titulo de la propia nota. Es la segunda linea de defensa para no
 # anclar una nota sobre otra; la primera es WindowNote.note_hwnds, porque una
 # ventana overrideredirect puede no exponer titulo al sistema.
@@ -113,6 +117,12 @@ class WindowNote:
         self._w = BASE_WIDTH
         self._h = BASE_HEIGHT
         self._pos: Optional[Tuple[int, int]] = None
+        self._tick = 0
+        self._draft_content = ""
+        stamp = self.created_at.strftime("%Y-%m-%d_%H%M%S")
+        self._draft_path = (
+            config.draft_dir / f"{stamp}__{sanitize_filename(self.window_title)}.md"
+        )
 
         self._build_ui()
         self._apply_scale(backend.get_window_dpi(handle))
@@ -335,6 +345,9 @@ class WindowNote:
         self._apply_scale(self.backend.get_window_dpi(self.handle))
         self._position_near_window()
         self._set_visible(self._should_be_visible())
+        self._tick += 1
+        if self._tick % AUTOSAVE_TICKS == 0:
+            self._autosave()
         self.top.after(TRACK_INTERVAL_MS, self._track)
 
     def focus(self) -> None:
@@ -347,6 +360,29 @@ class WindowNote:
         self.text.focus_force()
 
     # -------------------------------------------------------------- Archivado
+
+    def _autosave(self) -> None:
+        """Persiste el borrador a disco si el contenido cambio.
+
+        Es la red de seguridad contra crashes, kills y apagones: lo escrito
+        nunca vive solo en memoria mas de un par de segundos. El borrador se
+        borra al archivar la nota de verdad.
+        """
+        try:
+            content = self.text.get("1.0", "end").strip()
+        except tk.TclError:
+            return
+        if content == self._draft_content:
+            return
+        self._draft_content = content
+        try:
+            if content:
+                self._draft_path.parent.mkdir(parents=True, exist_ok=True)
+                self._draft_path.write_text(content + "\n", encoding="utf-8")
+            else:
+                self._draft_path.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"[stickies-notes] No se pudo autoguardar el borrador: {exc}")
 
     def _save_to_file(self, content: str, manual: bool) -> None:
         """Escribe la nota como Markdown con su cabecera de metadatos.
@@ -382,13 +418,20 @@ class WindowNote:
         try:
             content = self.text.get("1.0", "end").strip()
         except tk.TclError:
-            content = ""
+            # El widget murio antes de poder leerlo: el borrador autoguardado
+            # es la ultima copia buena del contenido.
+            content = self._draft_content
 
         if content:
             try:
                 self._save_to_file(content, manual)
             except OSError as exc:
                 print(f"[stickies-notes] No se pudo archivar la nota: {exc}")
+
+        try:
+            self._draft_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
         WindowNote.open_notes.pop(self.handle, None)
         WindowNote.note_hwnds -= self._own_hwnds

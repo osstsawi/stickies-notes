@@ -159,8 +159,46 @@ class NoteManager:
         except OSError as exc:
             print(f"[stickies-notes] Canal de control no disponible: {exc}")
 
+    def _recover_drafts(self) -> None:
+        """Archiva los borradores que dejo una corrida anterior al morir.
+
+        Si la app termina sin archivar (crash, kill, apagon), cada nota abierta
+        dejo su autoguardado en draft_dir; convertirlos en notas archivadas al
+        arrancar garantiza que lo escrito nunca se pierde.
+        """
+        draft_dir = self.config.draft_dir
+        if not draft_dir.is_dir():
+            return
+        import datetime as dt
+
+        for draft in sorted(draft_dir.glob("*.md")):
+            try:
+                content = draft.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if content:
+                header = (
+                    f"# {draft.stem.split('__', 1)[-1]}\n\n"
+                    f"- **Recuperada:** {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n"
+                    f"- **Motivo:** la aplicacion termino con la nota abierta "
+                    f"(recuperada del autoguardado)\n\n"
+                    "---\n\n"
+                )
+                target = self.config.archive_dir / draft.name
+                try:
+                    target.write_text(header + content + "\n", encoding="utf-8")
+                except OSError as exc:
+                    print(f"[stickies-notes] No se pudo recuperar {draft.name}: {exc}")
+                    continue
+                print(f"[stickies-notes] Nota recuperada del autoguardado: {target.name}")
+            try:
+                draft.unlink()
+            except OSError:
+                pass
+
     def run(self) -> None:
         """Arranca la aplicacion: hotkeys, bandeja y mainloop; limpia al salir."""
+        self._recover_drafts()
         self._setup_hotkeys()
         self._tray = TrayIcon(self)
         if not self._tray.start():

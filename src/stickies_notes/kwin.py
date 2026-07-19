@@ -49,12 +49,15 @@ FIRST_SNAPSHOT_TIMEOUT_S = 5.0
 # El puente que corre DENTRO de KWin. Manda la foto completa en cada evento:
 # es pequena (unos KB) y ahorra tener que reconciliar deltas en los dos lados.
 KWIN_SCRIPT = """\
-function push() {
+function snapshot(excluded) {
     const aw = workspace.activeWindow;
     const list = [];
     const stack = workspace.stackingOrder;  // de abajo hacia arriba
     for (let i = 0; i < stack.length; ++i) {
         const w = stack[i];
+        if (excluded !== undefined && w === excluded) {
+            continue;
+        }
         list.push({
             id: String(w.internalId),
             title: String(w.caption || ""),
@@ -69,9 +72,15 @@ function push() {
     }
     callDBus("org.stickies.Notes", "/", "org.stickies.Notes", "Update",
              JSON.stringify({
-                 active: aw ? String(aw.internalId) : "",
+                 active: aw && aw !== excluded ? String(aw.internalId) : "",
                  windows: list,
              }));
+}
+
+// push NO recibe parametros a proposito: los signals de KWin pasan la ventana
+// como primer argumento y, si push la aceptara, acabaria excluida de la foto.
+function push() {
+    snapshot(undefined);
 }
 
 function hook(w) {
@@ -82,7 +91,10 @@ function hook(w) {
 
 workspace.windowList().forEach(hook);
 workspace.windowAdded.connect(function (w) { hook(w); push(); });
-workspace.windowRemoved.connect(push);
+// En windowRemoved la ventana que muere TODAVIA figura en stackingOrder: hay
+// que excluirla a mano o la foto final la mantiene viva para siempre y las
+// notas nunca detectan el cierre (y no se archivan).
+workspace.windowRemoved.connect(function (w) { snapshot(w); });
 // Nota: workspace.stackingOrderChanged no existe en KWin 6.7; los cambios de
 // apilamiento relevantes llegan igual via windowActivated.
 workspace.windowActivated.connect(push);

@@ -121,12 +121,15 @@ cp "${REPO_ROOT}/build/icon.png" "${INSTALL_DIR}/build/icon.png"
 
 step "Creando entrada en el menu de aplicaciones..."
 mkdir -p "$KDE_APPS_DIR"
+# El Exec pasa por systemd cuando existe la unidad: asi la app lanzada desde el
+# menu queda administrada y sus mensajes caen al journal (lanzada directa, su
+# stdout se pierde y no hay forma de diagnosticarla).
 cat > "$DESKTOP_APP" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Stickies Notes
 Comment=Notas adhesivas ancladas a ventanas
-Exec=${VENV_DIR}/bin/python -m stickies_notes
+Exec=sh -c "systemctl --user start stickies-notes.service 2>/dev/null || exec '${VENV_DIR}/bin/python' -m stickies_notes"
 Path=${SRC_DIR}
 Icon=${INSTALL_DIR}/build/icon.png
 Categories=Utility;
