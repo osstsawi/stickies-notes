@@ -114,6 +114,12 @@ class WindowBackend(ABC):
     #: Clases de ventana que pertenecen al escritorio o la barra de tareas.
     SHELL_CLASSES: frozenset = frozenset()
 
+    #: Si las notas deben crearse como ventanas GESTIONADAS por el WM en vez de
+    #: override-redirect. En Wayland el compositor jamas da foco de teclado a
+    #: una ventana override-redirect de XWayland: la nota se ve pero no se
+    #: puede escribir en ella. Los backends que lo necesiten lo activan.
+    wants_managed_notes: bool = False
+
 
 class WinBackend(WindowBackend):
     """Backend de Windows basado en win32gui (pywin32)."""

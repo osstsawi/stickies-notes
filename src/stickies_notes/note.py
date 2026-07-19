@@ -125,10 +125,15 @@ class WindowNote:
         )
 
         self._build_ui()
+        if self._managed:
+            self._apply_managed_hints()
         self._apply_scale(backend.get_window_dpi(handle))
         self._position_near_window()
         self._register_own_hwnds()
         WindowNote.open_notes[handle] = self
+        # La ventana nace withdrawn (para aplicar hints antes de mapear); el
+        # primer _track la muestra si corresponde.
+        self._visible = False
         self._track()
 
     # ------------------------------------------------------------------ UI
@@ -136,8 +141,22 @@ class WindowNote:
     def _build_ui(self) -> None:
         """Crea el Toplevel sin bordes con su header arrastrable y el cuerpo."""
         self.top = tk.Toplevel(self.root)
+        # Se muestra al final, cuando los hints de ventana ya estan aplicados.
+        self.top.withdraw()
         self.top.title(f"{NOTE_TITLE_PREFIX} {self.window_title}")
-        self.top.overrideredirect(True)
+        self._managed = getattr(self.backend, "wants_managed_notes", False)
+        if self._managed:
+            # Ventana gestionada por el WM: en Wayland es la unica forma de que
+            # el compositor le de foco de teclado al hacer clic (una ventana
+            # override-redirect de XWayland se ve, pero no se puede escribir).
+            # La decoracion y la barra de tareas se quitan con hints X11 en
+            # _apply_managed_hints().
+            try:
+                self.top.attributes("-type", "dialog")
+            except tk.TclError:
+                pass
+        else:
+            self.top.overrideredirect(True)
         self.top.attributes("-topmost", True)
         try:
             self.top.attributes("-alpha", 0.96)
@@ -186,6 +205,38 @@ class WindowNote:
         for widget in (self.header, self.title_label):
             widget.bind("<Button-1>", self._on_drag_start)
             widget.bind("<B1-Motion>", self._on_drag_move)
+
+    def _apply_managed_hints(self) -> None:
+        """Quita decoraciones y saca la nota de la barra de tareas (via X11).
+
+        Solo aplica al modo gestionado (Wayland). Debe correr con la ventana
+        aun sin mapear: cambiar _NET_WM_STATE por propiedad directa solo es
+        valido antes de que el WM la administre.
+        """
+        try:
+            from Xlib import Xatom, display as xdisplay
+
+            self.top.update_idletasks()
+            wid = int(self.top.winfo_id())
+            d = xdisplay.Display()
+            win = d.create_resource_object("window", wid)
+            motif = d.intern_atom("_MOTIF_WM_HINTS")
+            # flags=2 (la palabra de decoraciones es valida), decorations=0.
+            win.change_property(motif, motif, 32, [2, 0, 0, 0, 0])
+            win.change_property(
+                d.intern_atom("_NET_WM_STATE"),
+                Xatom.ATOM,
+                32,
+                [
+                    d.intern_atom("_NET_WM_STATE_ABOVE"),
+                    d.intern_atom("_NET_WM_STATE_SKIP_TASKBAR"),
+                    d.intern_atom("_NET_WM_STATE_SKIP_PAGER"),
+                ],
+            )
+            d.flush()
+            d.close()
+        except Exception as exc:
+            print(f"[stickies-notes] No se pudieron aplicar hints de ventana: {exc}")
 
     def _apply_scale(self, dpi: int) -> None:
         """Reescala la nota al DPI del monitor donde esta la ventana anclada.
@@ -327,7 +378,8 @@ class WindowNote:
             if visible:
                 self.top.deiconify()
                 # Windows pierde estos atributos al volver de withdraw().
-                self.top.overrideredirect(True)
+                if not self._managed:
+                    self.top.overrideredirect(True)
                 self.top.attributes("-topmost", True)
             else:
                 self.top.withdraw()

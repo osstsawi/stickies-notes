@@ -49,6 +49,14 @@ FIRST_SNAPSHOT_TIMEOUT_S = 5.0
 # El puente que corre DENTRO de KWin. Manda la foto completa en cada evento:
 # es pequena (unos KB) y ahorra tener que reconciliar deltas en los dos lados.
 KWIN_SCRIPT = """\
+// Las notas son ventanas gestionadas en Wayland (necesitan foco de teclado del
+// compositor), pero para la app deben ser invisibles: si aparecieran en la
+// foto, una nota podria anclarse a otra nota o taparse a si misma.
+const PIN = String.fromCodePoint(0x1F4CC);
+function isNote(w) {
+    return String(w.caption || "").startsWith(PIN);
+}
+
 function snapshot(excluded) {
     const aw = workspace.activeWindow;
     const list = [];
@@ -56,6 +64,9 @@ function snapshot(excluded) {
     for (let i = 0; i < stack.length; ++i) {
         const w = stack[i];
         if (excluded !== undefined && w === excluded) {
+            continue;
+        }
+        if (isNote(w)) {
             continue;
         }
         list.push({
@@ -72,7 +83,8 @@ function snapshot(excluded) {
     }
     callDBus("org.stickies.Notes", "/", "org.stickies.Notes", "Update",
              JSON.stringify({
-                 active: aw && aw !== excluded ? String(aw.internalId) : "",
+                 active: aw && aw !== excluded && !isNote(aw)
+                     ? String(aw.internalId) : "",
                  windows: list,
              }));
 }
@@ -84,6 +96,9 @@ function push() {
 }
 
 function hook(w) {
+    if (isNote(w)) {
+        return;
+    }
     w.frameGeometryChanged.connect(push);
     w.captionChanged.connect(push);
     w.minimizedChanged.connect(push);
@@ -104,6 +119,8 @@ push();
 
 class KWinBackend(WindowBackend):
     """Backend que lee la foto de ventanas empujada por el script de KWin."""
+
+    wants_managed_notes = True
 
     def __init__(self) -> None:
         """Levanta el servicio DBus, inyecta el script y espera la primera foto.
