@@ -355,13 +355,34 @@ class X11Backend(WindowBackend):
 
 
 def get_backend() -> WindowBackend:
-    """Instancia el backend que corresponde al sistema operativo actual.
+    """Instancia el backend que corresponde al sistema y la sesion actuales.
 
-    Devuelve: WinBackend en Windows, X11Backend en Linux.
+    Devuelve: WinBackend en Windows; en Linux, KWinBackend si la sesion es
+              KDE sobre Wayland (con caida a X11Backend si el puente falla),
+              y X11Backend en el resto.
     Lanza: RuntimeError si la plataforma no esta soportada.
     """
     if sys.platform == "win32":
         return WinBackend()
     if sys.platform.startswith("linux"):
+        import os
+
+        # En Wayland el backend X11 solo ve ventanas XWayland: la ventana
+        # activa nativa le es invisible y la nota nunca aparece. En KDE la
+        # informacion se obtiene del compositor via script de KWin.
+        if os.environ.get("WAYLAND_DISPLAY") and "KDE" in os.environ.get(
+            "XDG_CURRENT_DESKTOP", ""
+        ):
+            try:
+                from stickies_notes.kwin import KWinBackend
+
+                backend = KWinBackend()
+                print("[stickies-notes] Backend: KWin (Wayland/KDE)")
+                return backend
+            except Exception as exc:
+                print(
+                    f"[stickies-notes] Puente KWin no disponible ({exc}); "
+                    "usando X11 (solo vera ventanas XWayland)."
+                )
         return X11Backend()
     raise RuntimeError(f"Plataforma no soportada: {sys.platform}")

@@ -75,16 +75,20 @@ En Linux no hay binario precompilado: se instala desde el código. Necesitas
 **Python 3.9+** con `tkinter`; el instalador añade `python-xlib` y `pynput` en su
 propio venv.
 
-> **Wayland:** la app consulta las ventanas por X11. En una sesión Wayland pura no
-> puede leer la ventana activa ni su posición; funciona solo con aplicaciones bajo
-> XWayland. Para uso real, usa una sesión Xorg. El instalador te avisa si detecta
-> Wayland.
+> **Wayland:** en Wayland ningún cliente puede consultar ventanas ajenas; esa
+> información la tiene solo el compositor. En **KDE Plasma la app funciona
+> completa**: inyecta un script en KWin que le envía por DBus el estado de las
+> ventanas (activa, geometría, título, cierre), y con eso las notas se anclan
+> también a aplicaciones Wayland nativas. En otros escritorios Wayland la app
+> cae al backend X11 y solo ve aplicaciones bajo XWayland; ahí conviene una
+> sesión Xorg.
 >
 > **Atajos en Wayland:** el compositor no entrega el teclado a las escuchas X11
 > de `pynput`, así que ahí los atajos globales se registran en el escritorio. En
 > **KDE Plasma** el instalador lo hace solo (vía kglobalaccel): `Ctrl+Alt+N` y
 > `Ctrl+Alt+Q` los captura el compositor y disparan la app por su **socket de
-> control**. En otros escritorios, asigna un atajo de sistema al comando
+> control** — y si la app no está corriendo, `new` la arranca primero. En otros
+> escritorios, asigna un atajo de sistema al comando
 > `<venv>/bin/python -m stickies_notes new` (y `quit`). El socket también sirve
 > desde la terminal: `python -m stickies_notes new|quit` ordena a la instancia
 > en marcha.

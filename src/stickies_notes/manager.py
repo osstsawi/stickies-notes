@@ -76,6 +76,7 @@ class NoteManager:
             handle = self.backend.get_active_window()
 
         if not handle or not self.backend.is_window(handle):
+            print("[stickies-notes] Sin ventana activa a la que anclar la nota.")
             return
 
         # No anclar una nota sobre otra nota. Se comprueba por handle y no solo
@@ -94,7 +95,9 @@ class NoteManager:
             existing.focus()
             return
 
-        WindowNote(self.root, self.backend, self.config, handle).focus()
+        note = WindowNote(self.root, self.backend, self.config, handle)
+        note.focus()
+        print(f"[stickies-notes] Nota creada para: {note.window_title!r}")
 
     def _quit(self) -> None:
         """Archiva todas las notas abiertas y termina el loop de Tkinter."""
@@ -177,6 +180,9 @@ class NoteManager:
                 self._listener.stop()
             if self._ipc is not None:
                 self._ipc.close()
+            close_backend = getattr(self.backend, "close", None)
+            if close_backend is not None:
+                close_backend()  # el backend KWin descarga su script del compositor
 
 
 def _to_pynput(hotkey: str) -> str:
