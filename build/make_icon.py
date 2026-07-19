@@ -104,15 +104,19 @@ def draw_note(size: int) -> Image.Image:
 
 
 def main() -> None:
-    """Genera el .ico multi-resolucion junto a este script."""
+    """Genera el .ico multi-resolucion y el .png junto a este script."""
     master = draw_note(CANVAS)
-    out = Path(__file__).parent / "icon.ico"
+    out_dir = Path(__file__).parent
     # La imagen base debe ser la MAYOR: Pillow genera el resto reduciendola y
     # descarta cualquier size mas grande que ella (con una base de 16x16 el .ico
     # sale con un unico frame de 16x16).
     base = master.resize((max(SIZES), max(SIZES)), Image.LANCZOS)
-    base.save(out, format="ICO", sizes=[(s, s) for s in SIZES])
-    print(f"Icono generado: {out} ({', '.join(f'{s}x{s}' for s in SIZES)})")
+    base.save(out_dir / "icon.ico", format="ICO", sizes=[(s, s) for s in SIZES])
+    # El .png lo usa la entrada del menu de aplicaciones en Linux, que no
+    # entiende .ico.
+    base.save(out_dir / "icon.png", format="PNG")
+    print(f"Iconos generados en {out_dir}: icon.ico "
+          f"({', '.join(f'{s}x{s}' for s in SIZES)}) + icon.png")
 
 
 if __name__ == "__main__":

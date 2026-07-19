@@ -20,6 +20,7 @@ DESKTOP_PATH="${HOME}/.config/autostart/${APP_NAME}.desktop"
 KDE_APPS_DIR="${HOME}/.local/share/applications"
 DESKTOP_NEW="${KDE_APPS_DIR}/stickies-notes-new.desktop"
 DESKTOP_QUIT="${KDE_APPS_DIR}/stickies-notes-quit.desktop"
+DESKTOP_APP="${KDE_APPS_DIR}/stickies-notes.desktop"
 
 # Codigos de tecla Qt: Ctrl=0x04000000 + Alt=0x08000000 + letra ASCII.
 QTKEY_CTRL_ALT_N=201326670  # 0x0C00004E
@@ -71,6 +72,7 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
         rm -f "$DESKTOP_NEW" "$DESKTOP_QUIT"
         echo "    Atajos KDE eliminados."
     fi
+    [[ -f "$DESKTOP_APP" ]] && rm -f "$DESKTOP_APP" && echo "    Entrada del menu eliminada."
     [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR" && echo "    Codigo y venv eliminados."
     echo
     echo -e "\033[32mListo. Tus notas archivadas NO se tocaron.\033[0m"
@@ -111,9 +113,27 @@ rm -rf "$SRC_DIR"
 mkdir -p "$INSTALL_DIR"
 cp -r "${REPO_ROOT}/src" "$SRC_DIR"
 # El icono de bandeja: tray.py lo busca en <raiz>/build/icon.ico relativo al
-# codigo; sin esta copia cae al cuadrado amarillo liso de respaldo.
+# codigo; sin esta copia cae al cuadrado amarillo liso de respaldo. El .png lo
+# usa la entrada del menu de aplicaciones.
 mkdir -p "${INSTALL_DIR}/build"
 cp "${REPO_ROOT}/build/icon.ico" "${INSTALL_DIR}/build/icon.ico"
+cp "${REPO_ROOT}/build/icon.png" "${INSTALL_DIR}/build/icon.png"
+
+step "Creando entrada en el menu de aplicaciones..."
+mkdir -p "$KDE_APPS_DIR"
+cat > "$DESKTOP_APP" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Stickies Notes
+Comment=Notas adhesivas ancladas a ventanas
+Exec=${VENV_DIR}/bin/python -m stickies_notes
+Path=${SRC_DIR}
+Icon=${INSTALL_DIR}/build/icon.png
+Categories=Utility;
+Terminal=false
+StartupNotify=false
+EOF
+command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 >/dev/null 2>&1 || true
 
 step "Creando entorno virtual..."
 [[ -d "$VENV_DIR" ]] || python3 -m venv --system-site-packages "$VENV_DIR"
